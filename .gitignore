@@ -156,7 +156,7 @@ cython_debug/
 
 .idea
 
-*.ipynb
+
 Stuff/
 Stuff/Commands.py
 # PyCharm
