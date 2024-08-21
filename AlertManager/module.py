@@ -247,7 +247,7 @@ class LocalValidator:
         """
         # Check the file type and save the DataFrame accordingly
         if self.file_type == "csv":
-            df.to_csv(f"{file_name}.csv", index=False)
+            df.to_csv(f"{file_name}.csv", index=False, encoding='utf-8')
         elif self.file_type == "xlsx":
             df.to_excel(f"{file_name}.xlsx", index=False)
         elif self.file_type == "pkl":
