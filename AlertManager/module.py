@@ -1,236 +1,263 @@
-from functools import wraps
-from datetime import datetime, timedelta
-import time
+import os
+import pandas as pd
+from datetime import datetime
 
 
+class LocalValidator:
 
-# The Job class represents a scheduled job that will be executed at specified intervals.
-class Job:
-    def __init__(self):
-        # Initialize the job with default values.
-        self.interval = None  # Interval between executions (e.g., every 5 seconds, every 2 days).
-        self.unit = None  # The time unit of the interval (e.g., 'second', 'minute', 'hour', 'day').
-        self.time_at = None  # Specific time of day the job should run (only used for day/week/month/year intervals).
-        self.repeat_count = None  # How many times the job should be repeated.
-        self.end_date = None  # The date and time after which the job should stop running.
-        self.job_func = None  # The function that will be executed when the job runs.
-        self.args = ()  # Positional arguments to pass to the job function.
-        self.kwargs = {}  # Keyword arguments to pass to the job function.
-        self.next_run = None  # The next scheduled run time of the job.
-        self.executed_count = 0  # Counter to keep track of how many times the job has run.
-        self.completed = False  # Flag to indicate whether the job has completed and should not run anymore.
-        self.use_threading = False  # Flag to determine if threading should be used to run the job.
+    def __init__(self, store=False, history=False, united=True, path="./validation_logs", file_type="pkl"):
+        """
+        Args:
+            store (bool): Whether to store validation results.
+            history (bool): Whether to store logs with historical data.
+            united (bool): Whether to store all validations in one file or separately.
+            path (str): Directory path where logs will be stored.
+            file_type (str): The file format for storing validation results. Options are 'csv', 'xlsx', 'pkl', 'txt'.
 
-    def every(self, interval):
-        # Set the interval for the job's execution.
-        self.interval = interval  # Assign the interval value.
-        return self  # Return the Job instance for method chaining.
+        Raises:
+            TypeError: If any of the input arguments are not of the expected type.
 
-    @property
-    def second(self):
-        # Set the time unit to 'second' for the job.
-        self.unit = 'second'  # Assign 'second' as the time unit.
-        return self  # Return the Job instance for method chaining.
+        """
 
-    @property
-    def minute(self):
-        # Set the time unit to 'minute' for the job.
-        self.unit = 'minute'  # Assign 'minute' as the time unit.
-        return self  # Return the Job instance for method chaining.
+        # Initialize attributes based on user input
+        self.store = store  # Determines whether to store validation results
+        self.united = united  # Determines whether to store all validations in one file
+        self.history = history  # Determines whether to store logs with historical data
+        self.file_type = file_type.lower()  # File type for storing validation results
 
-    @property
-    def hour(self):
-        # Set the time unit to 'hour' for the job.
-        self.unit = 'hour'  # Assign 'hour' as the time unit.
-        return self  # Return the Job instance for method chaining.
-
-    @property
-    def day(self):
-        # Set the time unit to 'day' for the job.
-        self.unit = 'day'  # Assign 'day' as the time unit.
-        return self  # Return the Job instance for method chaining.
-
-    def week(self, weekday, time_at=None):
-        # Set the time unit to 'week' and specify the day of the week the job should run.
-        self.unit = 'week'  # Assign 'week' as the time unit.
-        self.weekday = weekday  # Assign the day of the week (0 = Monday, 6 = Sunday).
-        if time_at:
-            self.time_at = datetime.strptime(time_at, '%H:%M').time()  # Parse and set the specific time of day.
-        return self  # Return the Job instance for method chaining.
-
-    def month(self, day, time_at=None):
-        # Set the time unit to 'month' and specify the day of the month the job should run.
-        self.unit = 'month'  # Assign 'month' as the time unit.
-        self.month_day = day  # Assign the specific day of the month.
-        if time_at:
-            self.time_at = datetime.strptime(time_at, '%H:%M').time()  # Parse and set the specific time of day.
-        return self  # Return the Job instance for method chaining.
-
-    def year(self, month, day, time_at=None):
-        # Set the time unit to 'year' and specify the month and day the job should run.
-        self.unit = 'year'  # Assign 'year' as the time unit.
-        self.year_month = month  # Assign the specific month.
-        self.year_day = day  # Assign the specific day of the month.
-        if time_at:
-            self.time_at = datetime.strptime(time_at, '%H:%M').time()  # Parse and set the specific time of day.
-        return self  # Return the Job instance for method chaining.
-
-    def at(self, time_at):
-        # Set a specific time of day for the job to run.
-        if self.unit in ['day', 'week', 'month', 'year']:
-            self.time_at = datetime.strptime(time_at, '%H:%M').time()  # Parse and set the time if the time unit is day/week/month/year.
+        # Set the path for storing logs, including daily subdirectories if history is True
+        if history:
+            self.path = os.path.join(path, f"{datetime.now().strftime('%Y-%m-%d')}")
         else:
-            raise ValueError("The 'at' method is only valid for daily, weekly, monthly, or yearly intervals.")
-        return self  # Return the Job instance for method chaining.
+            self.path = path
 
-    def repeat(self, repeat_count):
-        # Set how many times the job should be repeated.
-        self.repeat_count = repeat_count  # Assign the repeat count.
-        return self  # Return the Job instance for method chaining.
+        # Initialize an empty DataFrame for storing all validation results if united is True
+        self.all_validations_df = pd.DataFrame()
 
-    def until(self, end_date):
-        # Set the end date and time after which the job should stop running.
-        try:
-            self.end_date = datetime.strptime(end_date, '%Y-%m-%d %H:%M')  # Parse and set the end date/time.
-        except ValueError:
-            raise ValueError("The 'until' method expects a date and time in the format 'YYYY-MM-DD HH:MM'.")
-        return self  # Return the Job instance for method chaining.
+        # Validate the types of the input arguments
+        if not isinstance(store, bool):
+            raise TypeError("The 'store' argument must be a boolean.")
+        if not isinstance(united, bool):
+            raise TypeError("The 'united' argument must be a boolean.")
+        if not isinstance(history, bool):
+            raise TypeError("The 'history' argument must be a boolean.")
+        if not isinstance(file_type, str):
+            raise TypeError("The 'file_type' argument must be a string.")
 
-    def do(self, job_func, *args, **kwargs):
-        # Specify the function to execute when the job runs.
-        self.job_func = job_func  # Assign the function to be executed.
-        self.args = args  # Store positional arguments to pass to the function.
-        self.kwargs = kwargs  # Store keyword arguments to pass to the function.
-        self.next_run = self.calculate_next_run(datetime.now())  # Calculate and set the next run time based on the current time.
-        # print(f"[DEBUG] Next run scheduled for: {self.next_run}")  # Debugging line to trace the calculated next run time.
-        return self  # Return the Job instance for method chaining.
+        # Create the directory if it doesn't exist
+        if not os.path.exists(self.path):
+            os.makedirs(self.path)
 
-    def calculate_next_run(self, current_time):
-        # Calculate the next run time based on the job's schedule.
-        if self.unit == 'second':
-            next_run_time = current_time + timedelta(seconds=self.interval)  # Calculate next run time by adding seconds to current time.
-        elif self.unit == 'minute':
-            next_run_time = current_time + timedelta(minutes=self.interval)  # Calculate next run time by adding minutes to current time.
-        elif self.unit == 'hour':
-            next_run_time = current_time + timedelta(hours=self.interval)  # Calculate next run time by adding hours to current time.
-        elif self.unit == 'day':
-            next_run_date = current_time.date()  # Get the current date.
-            if self.time_at:
-                if current_time.time() >= self.time_at:
-                    next_run_date += timedelta(days=self.interval)  # If the current time has passed the time_at, move to the next interval day.
-                next_run_time = datetime.combine(next_run_date, self.time_at)  # Combine the next date with the specific time.
-            else:
-                next_run_time = current_time + timedelta(days=self.interval)  # If no specific time, just add days to the current time.
-        elif self.unit == 'week':
-            days_ahead = (self.weekday - current_time.weekday() + 7 * self.interval) % 7  # Calculate the next weekday to run.
-            next_run_date = current_time.date() + timedelta(days=days_ahead)  # Add the calculated days to get the next run date.
-            next_run_time = datetime.combine(next_run_date, self.time_at)  # Combine the next date with the specific time.
-        elif self.unit == 'month':
-            next_month = current_time.month + self.interval  # Calculate the next month to run.
-            year = current_time.year + (next_month - 1) // 12  # Adjust the year if the month calculation overflows to the next year.
-            month = (next_month - 1) % 12 + 1  # Calculate the correct month in the year.
-            next_run_date = datetime(year, month, self.month_day)  # Create the next run date with the specified day.
-            if current_time > next_run_date:
-                next_run_date = datetime(year, month + self.interval, self.month_day)  # If the calculated date is in the past, move to the next interval.
-            next_run_time = datetime.combine(next_run_date, self.time_at)  # Combine the next date with the specific time.
-        elif self.unit == 'year':
-            next_run_date = datetime(current_time.year, self.year_month, self.year_day)  # Create the next run date for the year.
-            if current_time > next_run_date:
-                next_run_date = datetime(current_time.year + self.interval, self.year_month, self.year_day)  # If the date is in the past, move to the next year.
-            next_run_time = datetime.combine(next_run_date, self.time_at)  # Combine the next date with the specific time.
+    def range_check(self, *, column: str, borders: list, name: str, **kwargs):
+        """
+        Decorator to validate that the values in a specified column fall within given ranges.
+
+        Args:
+            column (str): The column in the DataFrame to be validated.
+            borders (list): A list of tuples, each containing two numeric values representing the lower and upper bounds.
+            name (str): The name of the validation for logging purposes.
+
+        Returns:
+            function: A wrapped function with the validation applied.
+
+        Raises:
+            TypeError: If input arguments are not of the expected type.
+        """
+
+        # Validate input types
+        if not isinstance(column, str):
+            raise TypeError("The 'column' argument must be a string.")
+        if not isinstance(borders, list) or not all(isinstance(i, tuple) and len(i) == 2 for i in borders):
+            raise TypeError("The 'borders' argument must be a list of tuples with two numeric values.")
+        if not isinstance(name, str):
+            raise TypeError("The 'name' argument must be a string.")
+
+        def decorator(func):
+            def wrapper(df, *args, **kwargs_func):
+                # Check if the specified column exists in the DataFrame
+                if column not in df.columns:
+                    raise TypeError(f"Error: Column '{column}' not found in DataFrame.")
+
+                # Initialize a boolean Series to track whether values are within any of the specified ranges
+                in_range_mask = pd.Series([False] * len(df))
+
+                # Iterate over the list of borders and update the mask for values within the range
+                for bottom, top in borders:
+                    in_range_mask |= df[column].between(bottom, top)
+
+                # Identify rows where values are out of bounds
+                out_of_bounds = df.loc[~in_range_mask].copy()
+
+                # Save the out-of-bounds rows if any exist and storing is enabled
+                if not out_of_bounds.empty and self.store:
+                    self.save(out_of_bounds, name)
+
+                # Execute the wrapped function with the original arguments
+                return func(df, *args, **kwargs_func)
+
+            return wrapper
+
+        return decorator
+
+    def value_check(self, *, column: str, allowed: list = None, not_allowed: list = None, name: str, **kwargs):
+        """
+        Decorator to validate that the values in a specified column are either allowed or not allowed.
+
+        Args:
+            column (str): The column in the DataFrame to be validated.
+            allowed (list, optional): A list of allowed values for the column.
+            not_allowed (list, optional): A list of not allowed values for the column.
+            name (str): The name of the validation for logging purposes.
+
+        Returns:
+            function: A wrapped function with the validation applied.
+
+        Raises:
+            TypeError: If input arguments are not of the expected type.
+        """
+
+        # Validate input types
+        if not isinstance(column, str):
+            raise TypeError("The 'column' argument must be a string.")
+        if allowed is not None and not isinstance(allowed, list):
+            raise TypeError("The 'allowed' argument must be a list.")
+        if not_allowed is not None and not isinstance(not_allowed, list):
+            raise TypeError("The 'not_allowed' argument must be a list.")
+        if not isinstance(name, str):
+            raise TypeError("The 'name' argument must be a string.")
+
+        def decorator(func):
+            def wrapper(df, *args, **kwargs_func):
+                # Check if the specified column exists in the DataFrame
+                if column not in df.columns:
+                    raise TypeError(f"Error: Column '{column}' not found in DataFrame.")
+
+                # Initialize an empty DataFrame to store invalid rows
+                invalid_rows = pd.DataFrame()
+
+                # Validate against the allowed list, if provided
+                if allowed is not None:
+                    invalid_rows_allowed = df[~df[column].isin(allowed)]
+                    invalid_rows = pd.concat([invalid_rows, invalid_rows_allowed])
+
+                # Validate against the not allowed list, if provided
+                if not_allowed is not None:
+                    invalid_rows_not_allowed = df[df[column].isin(not_allowed)]
+                    invalid_rows = pd.concat([invalid_rows, invalid_rows_not_allowed])
+
+                # Save the invalid rows if any exist and storing is enabled
+                if not invalid_rows.empty and self.store:
+                    self.save(invalid_rows, name)
+
+                # Execute the wrapped function with the original arguments
+                return func(df, *args, **kwargs_func)
+
+            return wrapper
+
+        return decorator
+
+    def custom_check(self, *, custom_logic, name: str, **kwargs):
+        """
+        Decorator to apply custom validation logic on a DataFrame.
+
+        Args:
+            custom_logic (str or callable): The custom logic for validation, can be a query string or a function.
+            name (str): The name of the validation for logging purposes.
+
+        Returns:
+            function: A wrapped function with the custom validation applied.
+
+        Raises:
+            TypeError: If input arguments are not of the expected type.
+            ValueError: If the custom logic string or function fails to execute.
+        """
+
+        # Validate input types
+        if not (isinstance(custom_logic, str) or callable(custom_logic)):
+            raise TypeError("The 'custom_logic' argument must be a string or a callable (function).")
+        if not isinstance(name, str):
+            raise TypeError("The 'name' argument must be a string.")
+
+        def decorator(func):
+            def wrapper(df, *args, **kwargs_func):
+                # Apply custom logic if it's a string (query)
+                if isinstance(custom_logic, str):
+                    try:
+                        invalid_rows = df.query(custom_logic)
+                    except Exception as e:
+                        raise ValueError(f"Error in custom logic: {str(e)}")
+
+                # Apply custom logic if it's a callable (function)
+                elif callable(custom_logic):
+                    try:
+                        invalid_rows = custom_logic(df)
+                    except Exception as e:
+                        raise ValueError(f"Error in custom function: {str(e)}")
+
+                    # Convert Series result to DataFrame for consistency
+                    if isinstance(invalid_rows, pd.Series):
+                        invalid_rows = df.loc[invalid_rows].copy()
+                    elif not isinstance(invalid_rows, pd.DataFrame):
+                        raise TypeError("The custom function must return a pandas Series or DataFrame.")
+
+                # Save the invalid rows if any exist and storing is enabled
+                if not invalid_rows.empty and self.store:
+                    self.save(invalid_rows, name)
+
+                # Execute the wrapped function with the original arguments
+                return func(df, *args, **kwargs_func)
+
+            return wrapper
+
+        return decorator
+
+    def save(self, outliers, name):
+        """
+        Saves the outliers to a file based on the validator settings.
+
+        Args:
+            outliers (pd.DataFrame): DataFrame containing the outliers.
+            name (str): The name of the validation for logging purposes.
+        """
+        # Create a copy of the outliers DataFrame to avoid modifying the original
+        outliers = outliers.copy()
+
+        # Add a new column to track the name of the validation that generated the outliers
+        outliers["Validation Name"] = name
+
+        # If united is True, concatenate the outliers with the existing DataFrame of all validations
+        if self.united:
+            self.all_validations_df = pd.concat([self.all_validations_df, outliers], ignore_index=True)
+            # Save the combined DataFrame to a file named 'log' in the specified path
+            self.save_file(self.all_validations_df, os.path.join(self.path, "log"))
         else:
-            raise ValueError(f"Unsupported time unit: {self.unit}")  # Raise an error if the time unit is not supported.
+            # Save the outliers DataFrame to a file named after the validation name
+            self.save_file(outliers, os.path.join(self.path, f"{name}"))
 
-        # print(f"[DEBUG] Calculated next run time: {next_run_time}")  # Debugging line to trace the calculated next run time.
-        return next_run_time  # Return the calculated next run time.
+    def save_file(self, df, file_name):
+        """
+        Saves a DataFrame to a file in the specified format.
 
-    def should_run(self):
-        # Determine whether the job should run at the current time.
-        if self.end_date and datetime.now() > self.end_date:
-            self.completed = True  # If the current date is past the end date, mark the job as completed.
-            return False  # Return False since the job should not run anymore.
+        Args:
+            df (pd.DataFrame): The DataFrame to save.
+            file_name (str): The path and base name of the file.
 
-        if self.repeat_count is not None and self.executed_count >= self.repeat_count:
-            self.completed = True  # If the job has been executed the specified number of times, mark it as completed.
-            return False  # Return False since the job should not run anymore.
-
-        return datetime.now() >= self.next_run  # Return True if the current time is equal to or after the next scheduled run time.
-
-    def run(self):
-        # Execute the job if it is scheduled to run.
-        if self.should_run() and not self.completed:
-            # print(f"[DEBUG] Running job: {self.job_func.__name__} at {datetime.now()}")  # Debugging line to indicate the job is running.
-            self.job_func(*self.args, **self.kwargs)  # Execute the job function with the provided arguments.
-            self.executed_count += 1  # Increment the count of how many times the job has run.
-            self.next_run = self.calculate_next_run(self.next_run)  # Recalculate and update the next run time after the job has run.
-            # print(f"[DEBUG] Next run rescheduled for: {self.next_run}")  # Debugging line to trace the next scheduled run time.
-
-# The JobScheduler class manages the scheduling and execution of multiple jobs.
-class JobScheduler:
-    def __init__(self, use_threading=False):
-        # Initialize the job scheduler.
-        self.jobs = []  # List to store all the jobs to be managed by the scheduler.
-        self.use_threading = use_threading  # Flag to set the default threading behavior for all jobs.
-
-    def add_job(self, job):
-        # Add a job to the scheduler.
-        if job.use_threading is None:
-            job.use_threading = self.use_threading  # If the job doesn't have threading explicitly set, inherit the scheduler's threading behavior.
-        self.jobs.append(job)  # Add the job to the scheduler's list of jobs.
-
-    def run_pending(self):
-        # Run all jobs that are scheduled to run at the current time.
-        while self.jobs:
-            for job in self.jobs:
-                job.run()  # Run each job that is scheduled to run.
-            self.jobs = [job for job in self.jobs if not job.completed]  # Remove completed jobs from the list.
-            if not self.jobs:
-                print("All jobs are completed. Scheduler is shutting down.")  # Indicate that all jobs are completed.
-                break  # Exit the loop since there are no more jobs to run.
-            time.sleep(1)  # Sleep for a second to avoid busy-waiting in the loop.
+        Raises:
+            ValueError: If the specified file type is not supported.
+        """
+        # Check the file type and save the DataFrame accordingly
+        if self.file_type == "csv":
+            df.to_csv(f"{file_name}.csv", index=False)
+        elif self.file_type == "xlsx":
+            df.to_excel(f"{file_name}.xlsx", index=False)
+        elif self.file_type == "pkl":
+            df.to_pickle(f"{file_name}.pkl")
+        elif self.file_type == "txt":
+            with open(f"{file_name}.txt", "w") as log:
+                df.to_string(log)
+                log.write("\n")
+        else:
+            # Raise an error if the file type is not supported
+            raise ValueError("Unsupported file type. Supported types are: 'csv', 'xlsx', 'pkl', 'txt'")
 
 
-
-def jobs(interval, unit, time_at=None, until=None, repeat=None, scheduler=None):
-    # The `job` function is a decorator factory that takes scheduling parameters like interval, unit, time_at, until, and repeat.
-    def decorator(func):
-        # The `decorator` function wraps around the target function (the job to be scheduled).
-        @wraps(func)
-        # The `wraps` decorator is used to preserve the original function's metadata, like its name and docstring.
-        def wrapper(*args, **kwargs):
-            # The `wrapper` function is the actual wrapper around the job function that adds scheduling logic.
-            new_job = Job().every(interval)
-            # Create a new Job instance and set the interval for the job.
-            if unit == 'second':
-                new_job.second
-                # If the unit is 'second', set the job to run every specified number of seconds.
-            elif unit == 'minute':
-                new_job.minute
-                # If the unit is 'minute', set the job to run every specified number of minutes.
-            elif unit == 'hour':
-                new_job.hour
-                # If the unit is 'hour', set the job to run every specified number of hours.
-            elif unit == 'day':
-                new_job.day
-                # If the unit is 'day', set the job to run every specified number of days.
-                if time_at:
-                    new_job.at(time_at)
-                    # If a specific time of day is provided, set the job to run at that time.
-            else:
-                raise ValueError(f"Unsupported unit: {unit}")
-                # Raise an error if the unit provided is not supported.
-            if until:
-                new_job.until(until)
-                # If an end date/time is provided, set the job to stop running after that time.
-            if repeat:
-                new_job.repeat(repeat)
-                # If a repeat count is provided, set the job to run only that many times.
-            new_job.do(func, *args, **kwargs)
-
-            # Set the function to be executed by the job, passing any provided arguments.
-            scheduler.add_job(new_job)
-            # Add the newly created job to the scheduler.
-        return wrapper
-        # Return the wrapper function, effectively replacing the original function with this wrapped version.
-    return decorator
-    # Return the decorator function from the `job` function.
