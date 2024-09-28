@@ -1,11 +1,11 @@
 import os
 import pandas as pd
 from datetime import datetime
-
+import numpy as np
 
 class LocalValidator:
 
-    def __init__(self, store=False, history=False, united=True, path="./validation_logs", file_type="pkl"):
+    def __init__(self, store=False, history=False, united=True, identifier = None ,path="./validation_logs", file_type="pkl"):
         """
         Args:
             store (bool): Whether to store validation results.
@@ -19,11 +19,13 @@ class LocalValidator:
 
         """
 
+
         # Initialize attributes based on user input
         self.store = store  # Determines whether to store validation results
         self.united = united  # Determines whether to store all validations in one file
         self.history = history  # Determines whether to store logs with historical data
         self.file_type = file_type.lower()  # File type for storing validation results
+        self.identifier = identifier  # Determines whether to store logs with historical data
 
         # Set the path for storing logs, including daily subdirectories if history is True
         if history:
@@ -96,7 +98,6 @@ class LocalValidator:
                 return func(df, *args, **kwargs_func)
 
             return wrapper
-
         return decorator
 
     def value_check(self, *, column: str, allowed: list = None, not_allowed: list = None, name: str, **kwargs):
@@ -153,7 +154,114 @@ class LocalValidator:
                 return func(df, *args, **kwargs_func)
 
             return wrapper
+        return decorator
 
+    def statistical(self, *, column: str, name: str, sensitivity="medium", data_type=None, **kwargs):
+        """
+        Decorator to apply statistical outlier detection on a DataFrame column.
+        Uses z-score for continuous data and frequency-based detection for discrete data.
+
+        Args:
+            column (str): The column in the DataFrame to be validated.
+            name (str): The name of the validation for logging purposes.
+            sensitivity (str): The sensitivity level of the validation. Options are 'sensitive', 'medium', 'insensitive'.
+            data_type (str, optional): Specify 'continuous' or 'discrete'. If None, the type will be inferred.
+
+        Returns:
+            function: A wrapped function with the statistical validation applied.
+
+        Raises:
+            TypeError: If input arguments are not of the expected type.
+            ValueError: If an invalid value is provided for 'sensitivity' or 'data_type'.
+        """
+
+        # Validate input types
+        if not isinstance(column, str):
+            raise TypeError("The 'column' argument must be a string.")
+        if not isinstance(name, str):
+            raise TypeError("The 'name' argument must be a string.")
+        if not isinstance(sensitivity, str):
+            raise TypeError("The 'sensitivity' argument must be a string.")
+        if sensitivity.lower() not in ['sensitive', 'medium', 'insensitive']:
+            raise ValueError("The 'sensitivity' argument must be one of 'sensitive', 'medium', or 'insensitive'.")
+        if data_type is not None and data_type.lower() not in ['continuous', 'discrete']:
+            raise ValueError("The 'data_type' argument must be 'continuous', 'discrete', or None.")
+
+        def decorator(func):
+            def wrapper(df, *args, **kwargs_func):
+                # Check if the specified column exists in the DataFrame
+                if column not in df.columns:
+                    raise TypeError(f"Error: Column '{column}' not found in DataFrame.")
+
+                # Infer data type if not provided
+                if data_type is None:
+                    num_unique_values = df[column].nunique()
+                    total_values = len(df[column])
+                    unique_ratio = num_unique_values / total_values
+
+                    # Heuristic: If the number of unique values is less than 5% of total, treat as discrete
+                    if unique_ratio < 0.05:
+                        inferred_type = 'discrete'
+                    else:
+                        inferred_type = 'continuous'
+                else:
+                    inferred_type = data_type.lower()
+
+
+                # Initialize an empty DataFrame to store outliers
+                outliers = pd.DataFrame()
+
+                if inferred_type == 'continuous':
+                    # Ensure the column is numeric
+                    if not pd.api.types.is_numeric_dtype(df[column]):
+                        raise TypeError(f"Column '{column}' must be numeric for continuous outlier detection.")
+
+                    # Select thresholds based on 'sensitivity'
+                    if sensitivity.lower() == 'sensitive':
+                        z_score_threshold = 2.0
+                    elif sensitivity.lower() == 'medium':
+                        z_score_threshold = 3.0
+                    elif sensitivity.lower() == 'insensitive':
+                        z_score_threshold = 4.0
+
+                    # Data is continuous, use z-score method
+                    mean = df[column].mean()
+                    std_dev = df[column].std()
+                    z_scores = np.abs((df[column] - mean) / std_dev)
+
+                    # Identify outliers using z-score method
+                    outliers = df[z_scores > z_score_threshold]
+
+                elif inferred_type == 'discrete':
+                    # Define low frequency threshold percentage based on sensitivity
+                    if sensitivity.lower() == 'sensitive':
+                        low_frequency_threshold_percentage = 2
+                    elif sensitivity.lower() == 'medium':
+                        low_frequency_threshold_percentage = 1
+                    elif sensitivity.lower() == 'insensitive':
+                        low_frequency_threshold_percentage = 0.5
+
+                    # Calculate frequency counts
+                    frequency_counts = df[column].value_counts()
+                    total_counts = frequency_counts.sum()
+                    # Determine the threshold for low-frequency values
+                    low_threshold_value = total_counts * (low_frequency_threshold_percentage / 100.0)
+                    # Identify values that occur less frequently than the threshold
+                    outlier_values = frequency_counts[frequency_counts < low_threshold_value].index.tolist()
+                    # Filter out the rows containing these outlier values
+                    outliers = df[df[column].isin(outlier_values)]
+
+                else:
+                    raise ValueError("Invalid data type specified.")
+
+                # Save the outliers if any exist and storing is enabled
+                if not outliers.empty and self.store:
+                    self.save(outliers, name)
+
+                # Execute the wrapped function with the original arguments
+                return func(df, *args, **kwargs_func)
+
+            return wrapper
         return decorator
 
     def custom_check(self, *, custom_logic, name: str, **kwargs):
@@ -229,9 +337,13 @@ class LocalValidator:
         if self.united:
             self.all_validations_df = pd.concat([self.all_validations_df, outliers], ignore_index=True)
             # Save the combined DataFrame to a file named 'log' in the specified path
+            if self.identifier:
+                self.all_validations_df = self.all_validations_df[[self.identifier,"Validation Name"]]
             self.save_file(self.all_validations_df, os.path.join(self.path, "log"))
         else:
             # Save the outliers DataFrame to a file named after the validation name
+            if self.identifier:
+                outliers = outliers[[self.identifier,"Validation Name"]]
             self.save_file(outliers, os.path.join(self.path, f"{name}"))
 
     def save_file(self, df, file_name):
@@ -259,5 +371,3 @@ class LocalValidator:
         else:
             # Raise an error if the file type is not supported
             raise ValueError("Unsupported file type. Supported types are: 'csv', 'xlsx', 'pkl', 'txt'")
-
-
