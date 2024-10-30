@@ -7,8 +7,6 @@ from setuptools import setup, find_packages
 # twine upload dist/*
 
 
-
-
 setup(
     name="AlertManager",  # The name of your package
     version="1.0.2",  # The version of your package

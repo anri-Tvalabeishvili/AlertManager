@@ -436,8 +436,12 @@ class DatabaseValidator:
 
         # Create database engine and metadata
         self.engine = create_engine(connection_string)
-        self.metadata = MetaData(bind=self.engine)
-        self.table = Table(table_name, self.metadata, autoload_with=self.engine, schema=schema)
+        # Use MetaData without the bind parameter
+        self.metadata = MetaData()
+
+        # Reflect the table from the database
+        self.metadata.reflect(bind=self.engine, schema=schema)
+        self.table = self.metadata.tables[f"{schema}.{table_name}" if schema else table_name]
 
     def range_check(self, *, column: str, borders: list, name: str, **kwargs):
         """
