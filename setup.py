@@ -7,7 +7,6 @@ from setuptools import setup, find_packages
 # twine upload dist/*
 
 
-# pypi-AgEI5cHlwaS5vcmcCJGZkOGE3ODYwLWNhNmUtNGJiZS1iODE2LWI3MjI0NzRkNTYxMAACFFsxLFsiYWxlcnRtYW5hZ2VyIl1dAAIsWzIsWyJlZDc2NDFhOS1mOWU0LTQzOTgtODE1Yi04YWNjZGNmODEzNjAiXV0AAAYgTaqJ-Bf_0-8jNKHUffOa6olaLQjqSCckWoX-_6aGUjM
 
 
 setup(
