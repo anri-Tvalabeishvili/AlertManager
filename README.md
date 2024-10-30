@@ -470,22 +470,6 @@ update_database()
 
 Explanation: Flags records where age is less than 0 or greater than 100.
 
-Using a callable function:
-
-```python
-def custom_logic(df):
-return df[(df['salary'] < 30000) | (df['salary'] > 200000)]
-
-@alert_manager_db.custom_check(custom_logic=custom_logic, name='Custom Salary Check')
-def update_database():
-  # Database update logic
-  pass
-
-update_database()
-```
-
-Explanation: Flags records where salary is less than 30,000 or greater than 200,000.
-
 ### Configuration Options
 
 AlertManager allows you to customize how and where alerts are stored.
